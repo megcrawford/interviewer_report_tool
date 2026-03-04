@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CSCA Exam Schedule Processor</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f0f2f5; color: #1a1a2e; min-height: 100vh; padding: 24px; }
+  h1 { text-align: center; margin-bottom: 8px; font-size: 1.6rem; color: #1a1a2e; }
+  .subtitle { text-align: center; color: #666; margin-bottom: 24px; font-size: 0.9rem; }
+  .container { max-width: 1400px; margin: 0 auto; }
+
+  /* Upload area */
+  .upload-area {
+    border: 2px dashed #b0b8c8; border-radius: 12px; padding: 48px 24px;
+    text-align: center; background: #fff; cursor: pointer; transition: all 0.2s;
+    margin-bottom: 24px;
+  }
+  .upload-area:hover, .upload-area.dragover { border-color: #4a6cf7; background: #f0f4ff; }
+  .upload-area p { font-size: 1.1rem; color: #555; margin-bottom: 8px; }
+  .upload-area small { color: #999; }
+  .upload-area input { display: none; }
+
+  /* Stats bar */
+  .stats { display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
+  .stat-card { background: #fff; border-radius: 8px; padding: 14px 20px; flex: 1; min-width: 140px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  .stat-card .label { font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat-card .value { font-size: 1.4rem; font-weight: 700; color: #1a1a2e; margin-top: 2px; }
+  .stat-card.stat-warn { background: #fef2f2; border-left: 4px solid #dc2626; }
+  .stat-card.stat-warn .value { color: #dc2626; }
+
+  /* Controls */
+  .controls { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; align-items: center; }
+  .controls input[type="text"] {
+    padding: 8px 14px; border: 1px solid #d0d5dd; border-radius: 6px; font-size: 0.9rem; flex: 1; min-width: 200px;
+  }
+  .btn {
+    padding: 8px 20px; border: none; border-radius: 6px; font-size: 0.9rem; font-weight: 600;
+    cursor: pointer; transition: background 0.15s;
+  }
+  .btn-primary { background: #4a6cf7; color: #fff; }
+  .btn-primary:hover { background: #3b5de7; }
+  .btn-success { background: #10b981; color: #fff; }
+  .btn-success:hover { background: #059669; }
+
+  /* Table */
+  .table-wrap { overflow-x: auto; background: #fff; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  table { width: 100%; border-collapse: collapse; font-size: 0.82rem; white-space: nowrap; }
+  thead th {
+    background: #1a1a2e; color: #fff; padding: 10px 12px; text-align: left;
+    position: sticky; top: 0; z-index: 2; font-weight: 600; cursor: pointer; user-select: none;
+  }
+  thead th:hover { background: #2a2a4e; }
+  thead th.sorted-asc::after { content: " \u25B2"; font-size: 0.7rem; }
+  thead th.sorted-desc::after { content: " \u25BC"; font-size: 0.7rem; }
+  tbody tr { border-bottom: 1px solid #f0f0f0; }
+  tbody tr:hover { background: #f8f9ff; }
+  tbody tr.missing-interviewer { background: #fef2f2; }
+  tbody tr.missing-interviewer:hover { background: #fee2e2; }
+  tbody tr.missing-interviewer td.interviewer-cell { color: #dc2626; font-weight: 700; }
+  td { padding: 8px 12px; }
+  .tz-col { background: #f0f4ff; font-weight: 500; }
+  .missing-interviewer .tz-col { background: #fde8e8; }
+
+  .hidden { display: none; }
+
+  /* Type badges */
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+  .badge-3a { background: #dbeafe; color: #1e40af; }
+  .badge-3b { background: #fef3c7; color: #92400e; }
+  .badge-3c { background: #d1fae5; color: #065f46; }
+  .badge-resit { border: 1px dashed #999; }
+
+  /* Interviewer filter & export */
+  .interviewer-section { margin-bottom: 20px; }
+  .interviewer-section h3 { font-size: 0.85rem; color: #555; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .interviewer-btn-grid { display: flex; gap: 8px; flex-wrap: wrap; }
+  .interviewer-chip {
+    display: inline-flex; align-items: center; border: 1px solid #d0d5dd; border-radius: 6px;
+    overflow: hidden; background: #fff; transition: all 0.15s;
+  }
+  .interviewer-chip.active { border-color: #4a6cf7; box-shadow: 0 0 0 2px rgba(74,108,247,0.2); }
+  .interviewer-chip.chip-no-interviewer { border-style: dashed; }
+  .interviewer-chip.chip-no-interviewer.active { border-color: #dc2626; box-shadow: 0 0 0 2px rgba(220,38,38,0.2); }
+  .chip-filter {
+    padding: 6px 12px; font-size: 0.82rem; font-weight: 600; cursor: pointer;
+    background: transparent; border: none; color: #1a1a2e; transition: all 0.15s;
+  }
+  .chip-filter:hover { background: #f0f4ff; }
+  .active .chip-filter { background: #4a6cf7; color: #fff; }
+  .chip-no-interviewer .chip-filter { color: #dc2626; }
+  .chip-no-interviewer.active .chip-filter { background: #dc2626; color: #fff; }
+  .chip-count { font-weight: 400; opacity: 0.7; margin-left: 4px; font-size: 0.75rem; }
+  .chip-export {
+    padding: 6px 10px; cursor: pointer; background: transparent; border: none;
+    border-left: 1px solid #d0d5dd; color: #10b981; font-size: 0.85rem; transition: all 0.15s;
+    display: flex; align-items: center;
+  }
+  .chip-export:hover { background: #ecfdf5; }
+  .chip-export svg { width: 14px; height: 14px; }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <h1>CSCA Exam Schedule Processor</h1>
+  <p class="subtitle">Upload an interviewer report CSV &mdash; filters to Part 3A/3B/3C, highlights missing interviewers, and converts exam times across timezones.</p>
+
+  <div class="upload-area" id="uploadArea">
+    <p>Drag &amp; drop your <strong>interviewerreport.csv</strong> here</p>
+    <small>or click to browse</small>
+    <input type="file" id="fileInput" accept=".csv">
+  </div>
+
+  <div id="resultsSection" class="hidden">
+    <div class="stats" id="statsBar"></div>
+    <div class="controls">
+      <input type="text" id="searchBox" placeholder="Search by auditor, interviewer, type, language...">
+      <button class="btn btn-success" onclick="downloadCSV()">Download Filtered CSV</button>
+    </div>
+    <div class="interviewer-section hidden" id="interviewerSection">
+      <h3>Filter &amp; Export by Interviewer</h3>
+      <div class="interviewer-btn-grid" id="interviewerBtnGrid"></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead id="tableHead"></thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── IANA Timezone Database (Luxon-style offset rules) ──
+// We use Intl.DateTimeFormat to convert, which uses the OS timezone database.
+// This means DST is handled correctly and automatically.
+
+const TARGET_ZONES = [
+  { label: "Time in Sydney",          tz: "Australia/Sydney" },
+  { label: "Time in Montreal",        tz: "America/Toronto" },   // America/Montreal links to America/Toronto
+  { label: "Time in Hong Kong/Taiwan", tz: "Asia/Hong_Kong" },
+  { label: "Time in Turkey",          tz: "Europe/Istanbul" },
+  { label: "Time in Spain",           tz: "Europe/Madrid" },
+  { label: "Time in UK",              tz: "Europe/London" },
+];
+
+// Some IANA aliases the CSV might use
+const TZ_ALIASES = {
+  "Asia/Calcutta": "Asia/Kolkata",
+  "Australia/Canberra": "Australia/Sydney",
+  "Egypt": "Africa/Cairo",
+};
+
+const BASE_COLUMNS = [
+  "Auditor", "APSCA Membership Number", "Preferred Email",
+  "Exam Date", "Timezone", "Exam Language", "Exam Interviewer", "Type"
+];
+
+let processedRows = [];
+let sortCol = -1;
+let sortAsc = true;
+let filterInterviewer = null; // null = show all, string = filter to that name ("" = no interviewer)
+
+// ── File upload handling ──
+const uploadArea = document.getElementById("uploadArea");
+const fileInput = document.getElementById("fileInput");
+
+uploadArea.addEventListener("click", () => fileInput.click());
+uploadArea.addEventListener("dragover", e => { e.preventDefault(); uploadArea.classList.add("dragover"); });
+uploadArea.addEventListener("dragleave", () => uploadArea.classList.remove("dragover"));
+uploadArea.addEventListener("drop", e => {
+  e.preventDefault();
+  uploadArea.classList.remove("dragover");
+  if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener("change", () => { if (fileInput.files.length) handleFile(fileInput.files[0]); });
+
+function handleFile(file) {
+  const reader = new FileReader();
+  reader.onload = e => processCSV(e.target.result);
+  reader.readAsText(file);
+}
+
+// ── CSV parsing ──
+function parseCSV(text) {
+  const rows = [];
+  let current = "";
+  let inQuotes = false;
+  const lines = text.split("\n");
+
+  // Rejoin lines that are inside quoted fields
+  const normalizedLines = [];
+  let buffer = "";
+  for (const line of lines) {
+    buffer += (buffer ? "\n" : "") + line;
+    const quoteCount = (buffer.match(/"/g) || []).length;
+    if (quoteCount % 2 === 0) {
+      normalizedLines.push(buffer);
+      buffer = "";
+    }
+  }
+  if (buffer) normalizedLines.push(buffer);
+
+  for (const line of normalizedLines) {
+    if (line.trim() === "") continue;
+    const fields = [];
+    let field = "";
+    let inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (inQ) {
+        if (ch === '"' && line[i + 1] === '"') { field += '"'; i++; }
+        else if (ch === '"') { inQ = false; }
+        else { field += ch; }
+      } else {
+        if (ch === '"') { inQ = true; }
+        else if (ch === ',') { fields.push(field); field = ""; }
+        else { field += ch; }
+      }
+    }
+    fields.push(field);
+    rows.push(fields);
+  }
+  return rows;
+}
+
+// ── Date parsing ──
+function parseExamDate(dateStr) {
+  // "March 12, 2026 12:00am" -> Date object (as local, we'll handle TZ separately)
+  const cleaned = dateStr.trim().replace(/(am|pm)/i, m => " " + m.toUpperCase());
+  const d = new Date(cleaned);
+  if (isNaN(d)) return null;
+  return d;
+}
+
+function formatExamDate(date) {
+  const days = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  const months = ["January","February","March","April","May","June",
+                  "July","August","September","October","November","December"];
+  const day = days[date.getDay()];
+  const month = months[date.getMonth()];
+  const dateNum = date.getDate();
+  const year = date.getFullYear();
+  let hours = date.getHours();
+  const minutes = date.getMinutes();
+  const ampm = hours >= 12 ? "pm" : "am";
+  hours = hours % 12 || 12;
+  const min = minutes > 0 ? ":" + String(minutes).padStart(2, "0") : "";
+  return `${day} ${month} ${dateNum}, ${year} ${hours}${min}${ampm}`;
+}
+
+// Convert a "wall clock" date in a source IANA timezone to a UTC timestamp
+function wallClockToUTC(date, ianaZone) {
+  // Strategy: format the UTC timestamp in the target zone and find the offset
+  // We use a binary-search-free approach: construct an approximate UTC and refine
+  const tz = TZ_ALIASES[ianaZone] || ianaZone;
+
+  // Get the year/month/day/hour/minute from the parsed date (which JS interpreted as local)
+  const year = date.getFullYear();
+  const month = date.getMonth();
+  const day = date.getDate();
+  const hours = date.getHours();
+  const minutes = date.getMinutes();
+
+  // Create a UTC date with these components as a first guess
+  const guessUTC = new Date(Date.UTC(year, month, day, hours, minutes, 0, 0));
+
+  // See what wall-clock time that UTC instant represents in the source timezone
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false
+  });
+  const parts = parseFmtParts(fmt, guessUTC);
+
+  // Calculate the difference (offset) between our guess and the actual wall clock
+  const actualWall = new Date(Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour === 24 ? 0 : parts.hour, parts.minute));
+  const diffMs = actualWall.getTime() - guessUTC.getTime();
+
+  // The real UTC = guessUTC - diffMs
+  return new Date(guessUTC.getTime() - diffMs);
+}
+
+function parseFmtParts(fmt, date) {
+  const p = {};
+  for (const part of fmt.formatToParts(date)) {
+    if (part.type === "year") p.year = parseInt(part.value);
+    if (part.type === "month") p.month = parseInt(part.value);
+    if (part.type === "day") p.day = parseInt(part.value);
+    if (part.type === "hour") p.hour = parseInt(part.value);
+    if (part.type === "minute") p.minute = parseInt(part.value);
+  }
+  return p;
+}
+
+// Format a UTC date in a given IANA timezone
+function formatInZone(utcDate, ianaZone) {
+  const tz = TZ_ALIASES[ianaZone] || ianaZone;
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: true,
+    weekday: "short"
+  });
+  const parts = {};
+  for (const p of fmt.formatToParts(utcDate)) {
+    parts[p.type] = p.value;
+  }
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}${parts.dayPeriod.toUpperCase()} (${parts.weekday})`;
+}
+
+// ── Main processing ──
+function processCSV(text) {
+  const rows = parseCSV(text);
+  if (rows.length < 2) { alert("CSV appears empty or invalid."); return; }
+
+  const headers = rows[0].map(h => h.trim());
+  const typeIdx = headers.findIndex(h => h === "Type");
+  const interviewerIdx = headers.findIndex(h => /Exam Interviewer/i.test(h));
+  const dateIdx = headers.findIndex(h => h === "Exam Date");
+  const tzIdx = headers.findIndex(h => h === "Timezone");
+  const auditorIdx = headers.findIndex(h => h === "Auditor");
+  const memberIdx = headers.findIndex(h => /Membership/i.test(h));
+  const emailIdx = headers.findIndex(h => /Email/i.test(h));
+  const langIdx = headers.findIndex(h => /Language/i.test(h));
+
+  if (typeIdx < 0 || interviewerIdx < 0 || dateIdx < 0 || tzIdx < 0) {
+    alert("Could not find required columns (Type, Exam Interviewer, Exam Date, Timezone). Check CSV format.");
+    return;
+  }
+
+  const totalRows = rows.length - 1;
+  let filteredOut_type = 0;
+  let filteredOut_date = 0;
+  let missingInterviewerCount = 0;
+  let errorCount = 0;
+  processedRows = [];
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (r.length < headers.length) continue;
+
+    const type = (r[typeIdx] || "").trim();
+    const interviewer = (r[interviewerIdx] || "").trim();
+
+    // Filter: Part 3A, 3B, 3C only
+    if (!/Part 3[ABC]/i.test(type)) { filteredOut_type++; continue; }
+
+    // Filter: must have an exam date that is today or in the future
+    const rawDateStr = (r[dateIdx] || "").trim();
+    const checkDate = parseExamDate(rawDateStr);
+    if (!rawDateStr || !checkDate) { filteredOut_date++; continue; }
+    const examDay = new Date(checkDate.getFullYear(), checkDate.getMonth(), checkDate.getDate());
+    if (examDay < today) { filteredOut_date++; continue; }
+
+    const missingInterviewer = !interviewer;
+    if (missingInterviewer) missingInterviewerCount++;
+
+    const examDateStr = (r[dateIdx] || "").trim();
+    const timezone = (r[tzIdx] || "").trim();
+
+    const parsedDate = parseExamDate(examDateStr);
+    const displayDate = parsedDate ? formatExamDate(parsedDate) : examDateStr;
+    let tzValues = [];
+
+    if (parsedDate && timezone) {
+      try {
+        const utc = wallClockToUTC(parsedDate, timezone);
+        tzValues = TARGET_ZONES.map(t => formatInZone(utc, t.tz));
+      } catch (e) {
+        tzValues = TARGET_ZONES.map(() => "ERROR");
+        errorCount++;
+      }
+    } else {
+      tzValues = TARGET_ZONES.map(() => "N/A");
+      if (!parsedDate) errorCount++;
+    }
+
+    processedRows.push({
+      missingInterviewer,
+      rawInterviewer: interviewer,
+      values: [
+        (r[auditorIdx] || "").trim(),
+        (r[memberIdx] || "").trim(),
+        (r[emailIdx] || "").trim(),
+        displayDate,
+        timezone,
+        (r[langIdx] || "").trim(),
+        missingInterviewer ? "⚠ NO INTERVIEWER" : interviewer,
+        type,
+        ...tzValues
+      ]
+    });
+  }
+
+  // Show results
+  filterInterviewer = null;
+  document.getElementById("resultsSection").classList.remove("hidden");
+  renderStats(totalRows, processedRows.length, filteredOut_type, filteredOut_date, missingInterviewerCount, errorCount);
+  renderTable();
+  renderInterviewerButtons();
+
+  // Search
+  document.getElementById("searchBox").value = "";
+  document.getElementById("searchBox").oninput = () => renderTable();
+}
+
+function renderStats(total, kept, removedType, removedDate, missingInterviewer, errors) {
+  const bar = document.getElementById("statsBar");
+  bar.innerHTML = [
+    { label: "Source rows", value: total },
+    { label: "Part 3A/3B/3C", value: kept },
+    { label: "Removed (wrong type)", value: removedType },
+    { label: "Removed (past/no date)", value: removedDate },
+    { label: "Missing interviewer", value: missingInterviewer, warn: missingInterviewer > 0 },
+    { label: "Conversion errors", value: errors },
+  ].map(s => `<div class="stat-card${s.warn ? ' stat-warn' : ''}"><div class="label">${s.label}</div><div class="value">${s.value}</div></div>`).join("");
+}
+
+function getTypeBadge(type) {
+  let cls = "badge ";
+  if (/3A/i.test(type)) cls += "badge-3a";
+  else if (/3B/i.test(type)) cls += "badge-3b";
+  else if (/3C/i.test(type)) cls += "badge-3c";
+  if (/resit/i.test(type)) cls += " badge-resit";
+  const short = type.replace("CSCA Exam ", "");
+  return `<span class="${cls}">${short}</span>`;
+}
+
+function renderTable() {
+  const allCols = [...BASE_COLUMNS, ...TARGET_ZONES.map(t => t.label)];
+  const search = document.getElementById("searchBox").value.toLowerCase();
+
+  // Header
+  const thead = document.getElementById("tableHead");
+  thead.innerHTML = "<tr>" + allCols.map((c, i) => {
+    let cls = i >= BASE_COLUMNS.length ? ' class="tz-col"' : '';
+    let sortCls = '';
+    if (i === sortCol) sortCls = sortAsc ? ' sorted-asc' : ' sorted-desc';
+    return `<th${cls} class="${(i >= BASE_COLUMNS.length ? 'tz-col ' : '') + sortCls}" onclick="sortTable(${i})">${c}</th>`;
+  }).join("") + "</tr>";
+
+  // Filter by interviewer
+  let rows = processedRows;
+  if (filterInterviewer !== null) {
+    rows = rows.filter(r => {
+      if (filterInterviewer === "") return r.missingInterviewer;
+      return r.rawInterviewer === filterInterviewer;
+    });
+  }
+
+  // Filter by search
+  if (search) {
+    rows = rows.filter(r => r.values.some(v => v.toLowerCase().includes(search)));
+  }
+
+  // Sort
+  if (sortCol >= 0) {
+    rows = [...rows].sort((a, b) => {
+      const va = a.values[sortCol] || "";
+      const vb = b.values[sortCol] || "";
+      return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+    });
+  }
+
+  // Body
+  const tbody = document.getElementById("tableBody");
+  const interviewerColIdx = 6;
+  tbody.innerHTML = rows.map(r => {
+    const trClass = r.missingInterviewer ? ' class="missing-interviewer"' : '';
+    return `<tr${trClass}>` + r.values.map((v, i) => {
+      let cls = '';
+      if (i >= BASE_COLUMNS.length) cls = 'tz-col';
+      if (i === interviewerColIdx && r.missingInterviewer) cls += (cls ? ' ' : '') + 'interviewer-cell';
+      const clsAttr = cls ? ` class="${cls}"` : '';
+      const content = i === 7 ? getTypeBadge(v) : escapeHtml(v);
+      return `<td${clsAttr}>${content}</td>`;
+    }).join("") + "</tr>";
+  }).join("");
+}
+
+function sortTable(colIdx) {
+  if (sortCol === colIdx) { sortAsc = !sortAsc; }
+  else { sortCol = colIdx; sortAsc = true; }
+  renderTable();
+}
+
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// ── Interviewer filter & export ──
+const DOWNLOAD_ICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path d="M10 3a1 1 0 011 1v7.586l2.293-2.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 11.586V4a1 1 0 011-1z"/><path d="M3 15a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z"/></svg>';
+
+function renderInterviewerButtons() {
+  const counts = {};
+  for (const r of processedRows) {
+    const name = r.missingInterviewer ? "" : r.rawInterviewer;
+    counts[name] = (counts[name] || 0) + 1;
+  }
+
+  const names = Object.keys(counts).sort((a, b) => {
+    if (a === "") return 1;
+    if (b === "") return -1;
+    return a.localeCompare(b);
+  });
+
+  const container = document.getElementById("interviewerSection");
+  const grid = document.getElementById("interviewerBtnGrid");
+
+  if (names.length === 0) { container.classList.add("hidden"); return; }
+  container.classList.remove("hidden");
+
+  // "All" chip + one chip per interviewer
+  const allActive = filterInterviewer === null ? " active" : "";
+  let html = `<div class="interviewer-chip${allActive}" data-filter-all>
+    <button class="chip-filter">All<span class="chip-count">(${processedRows.length})</span></button>
+  </div>`;
+
+  html += names.map((name, idx) => {
+    const isNone = name === "";
+    const label = isNone ? "NO INTERVIEWER" : name;
+    const chipCls = isNone ? "chip-no-interviewer" : "";
+    const isActive = filterInterviewer === name ? " active" : "";
+    const escaped = escapeHtml(label);
+    return `<div class="interviewer-chip ${chipCls}${isActive}" data-idx="${idx}">
+      <button class="chip-filter">${escaped}<span class="chip-count">(${counts[name]})</span></button>
+      <button class="chip-export" title="Export ${escaped} CSV">${DOWNLOAD_ICON}</button>
+    </div>`;
+  }).join("");
+
+  grid.innerHTML = html;
+
+  // "All" click
+  grid.querySelector("[data-filter-all] .chip-filter").addEventListener("click", () => {
+    filterInterviewer = null;
+    renderTable();
+    renderInterviewerButtons();
+  });
+
+  // Per-interviewer clicks
+  grid.querySelectorAll("[data-idx]").forEach(chip => {
+    const idx = parseInt(chip.dataset.idx);
+    chip.querySelector(".chip-filter").addEventListener("click", () => {
+      filterInterviewer = names[idx];
+      renderTable();
+      renderInterviewerButtons();
+    });
+    chip.querySelector(".chip-export").addEventListener("click", () => {
+      downloadInterviewerCSV(names[idx]);
+    });
+  });
+}
+
+function downloadInterviewerCSV(interviewerName) {
+  const allCols = [...BASE_COLUMNS, ...TARGET_ZONES.map(t => t.label)];
+  const rows = processedRows.filter(r => {
+    if (interviewerName === "") return r.missingInterviewer;
+    return r.rawInterviewer === interviewerName;
+  });
+
+  const csvContent = [
+    allCols.map(c => `"${c}"`).join(","),
+    ...rows.map(r => r.values.map(v => `"${v.replace(/"/g, '""')}"`).join(","))
+  ].join("\n");
+
+  const now = new Date();
+  const datePrefix = `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, "0")}.${String(now.getDate()).padStart(2, "0")}`;
+  const fileSuffix = interviewerName || "No Interviewer";
+  const fileName = `${datePrefix} ${fileSuffix}.csv`;
+
+  const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ── CSV download ──
+function downloadCSV() {
+  const allCols = [...BASE_COLUMNS, ...TARGET_ZONES.map(t => t.label)];
+  const search = document.getElementById("searchBox").value.toLowerCase();
+  let rows = processedRows;
+  if (search) rows = rows.filter(r => r.values.some(v => v.toLowerCase().includes(search)));
+
+  const csvContent = [
+    allCols.map(c => `"${c}"`).join(","),
+    ...rows.map(r => r.values.map(v => `"${v.replace(/"/g, '""')}"`).join(","))
+  ].join("\n");
+
+  const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "interviewerreport_filtered.csv";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+</script>
+</body>
+</html>
